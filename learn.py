@@ -1,12 +1,13 @@
 import gym 
 import numpy as np
 from gym.utils.save_video import save_video
+import matplotlib.pyplot as plt
 
 #--------- ENVIRONMENT ------------
-render_mode="rgb_array_list"
-# render_mode = "none"
-env = gym.make("MountainCar-v0", render_mode)
-# env = gym.make("MountainCar-v0")
+# render_mode="rgb_array_list"
+render_mode = "none"
+#env = gym.make("MountainCar-v0", render_mode)
+env = gym.make("MountainCar-v0")
 
 #--------- CONFIGS ------------
 LEARNING_RATE = 0.1
@@ -16,6 +17,7 @@ epsilon = 0.5 # exploration rate
 START_EPSILON_DECAYING = 1
 END_EPSILON_DECAYING = EPISODES // 2 # result always INT
 epsilon_decay_value = epsilon / (END_EPSILON_DECAYING - START_EPSILON_DECAYING)
+SHOW_EVERY = 500
 
 #--------- CALCULATE BUCKET SIZE ------------
 OBSERVATION_SPACE_SIZE = len(env.observation_space.high) # 2 -> [position, velocity] -> [0.6  0.07] 
@@ -29,6 +31,9 @@ q_table = np.random.uniform(low=-2, high=0, size=TABLE_SIZE) # initialized with 
 # print(q_table.shape) # [20, 20, 3]
 # print(q_table)
 
+ep_rewards = []
+aggr_ep_rewards = {'ep': [], 'avg': [], 'min': [], 'max': []}
+
 def get_discrete_state(state):
     discrete_state = (state - env.observation_space.low)/BUCKET_SIZE
     return tuple(discrete_state.astype(int))  # we use this tuple to look up the 3 Q values for the available actions in the q-table
@@ -36,6 +41,8 @@ def get_discrete_state(state):
 render_once = False
 
 for episode in range(EPISODES):    
+
+    episode_reward = 0
 
     # it's good if we can visualize this via animating the act of retrieving q_values at coordinate `discrete_state`
     # print(env.reset()) # (array([-0.5832684,  0.       ], dtype=float32), {})
@@ -59,6 +66,9 @@ for episode in range(EPISODES):
         new_state, reward, terminated, truncated, info = env.step(action)  # (array([-0.5832684,  0.       ], dtype=float32), {})
         new_discrete_state = get_discrete_state(new_state) #  (9, 10)
 
+        #----------------- INCREMENT REWARD -----------------
+        episode_reward += reward     
+
         if render_once == False:
             frame_index += 1
         
@@ -78,8 +88,8 @@ for episode in range(EPISODES):
             # update the table entry
             q_table[discrete_state+(action, )] = new_q
         elif new_state[0] >= env.goal_position: # goal == 0.5
-            print("new_state[0]: ", new_state[0])
-            print(f"we made it on episode {episode}")
+            #print("new_state[0]: ", new_state[0])
+            #print(f"we made it on episode {episode}")
             q_table[discrete_state + (action,)] = 0 # set state + action -> q_values to zero -> we win the game
 
             if render_once == False and render_mode == "rgb_array_list":
@@ -100,10 +110,30 @@ for episode in range(EPISODES):
     if END_EPSILON_DECAYING >= episode >= START_EPSILON_DECAYING:
         epsilon -= epsilon_decay_value
 
+    #----------------- AGGREGATE REWARDS -----------------
+    ep_rewards.append(episode_reward)
 
+    if not episode % SHOW_EVERY: # every SHOW_EVERY episodes
+        average_reward = sum(ep_rewards[-SHOW_EVERY:])/len(ep_rewards[-SHOW_EVERY:]) # average of last SHOW_EVERY episodes
+        aggr_ep_rewards['ep'].append(episode)
+        aggr_ep_rewards['avg'].append(average_reward)
+        aggr_ep_rewards['min'].append(min(ep_rewards[-SHOW_EVERY:]))
+        aggr_ep_rewards['max'].append(max(ep_rewards[-SHOW_EVERY:]))
 
+        print(f"Episode: {episode} avg: {average_reward} min: {min(ep_rewards[-SHOW_EVERY:])} max: {max(ep_rewards[-SHOW_EVERY:])}")
 
+    # save the q_table every 1000 episodes
+    if not episode % 1000:
+        np.save(f"qtables/{episode}-qtable.npy", q_table)
+
+# END FOR
 env.close()
+
+plt.plot(aggr_ep_rewards['ep'], aggr_ep_rewards['avg'], label="avg")
+plt.plot(aggr_ep_rewards['ep'], aggr_ep_rewards['min'], label="min")
+plt.plot(aggr_ep_rewards['ep'], aggr_ep_rewards['max'], label="max")
+plt.legend(loc=4)
+plt.show()
 
 
 # ------------ 20 x 3 --------------
